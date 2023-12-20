@@ -35,6 +35,7 @@ import TestCaseList from '@/components/TestCaseList.vue';
 import StepLog from '@/components/StepLog.vue';
 import ElementUpdate from '@/components/ElementUpdate.vue';
 import Pageable from '@/components/Pageable.vue';
+import PackageList from '@/components/PackageList.vue';
 import defaultLogo from '@/assets/logo.png';
 import {
   VideoPause,
@@ -78,6 +79,7 @@ import RenderDeviceName from '../../components/RenderDeviceName.vue';
 import Scrcpy from './Scrcpy';
 import PocoPane from '../../components/PocoPane.vue';
 import AndroidPerf from '../../components/AndroidPerf.vue';
+import RemotePageHeader from '../../components/RemotePageHeader.vue';
 
 const pocoPaneRef = ref(null);
 const androidPerfRef = ref(null);
@@ -342,6 +344,15 @@ const getImg = (name) => {
   }
   return result;
 };
+// 选中安装包列表中的item后响应事件
+const selectPackage = (val) => {
+  ElMessage.success({
+    message: $t('androidRemoteTS.startInstall'),
+  });
+  install(val);
+};
+// 三种安装包方式tab选中态
+const activeIntallTab = ref('pushInstallPane');
 watch(filterText, (newValue, oldValue) => {
   tree.value.filter(newValue);
 });
@@ -733,6 +744,13 @@ const websocketOnmessage = (message) => {
       }
       break;
     }
+    case 'paste': {
+      paste.value = JSON.parse(message.data).detail;
+      ElMessage.success({
+        message: $t('IOSRemote.clipboard.text'),
+      });
+      break;
+    }
     case 'pushResult': {
       pushLoading.value = false;
       if (JSON.parse(message.data).status === 'success') {
@@ -877,6 +895,24 @@ const deleteInputHandle = () => {
     JSON.stringify({
       type: 'text',
       detail: 'CODE_AC_BACK',
+    })
+  );
+};
+const setPasteboard = (text) => {
+  websocket.send(
+    JSON.stringify({
+      type: 'setPasteboard',
+      detail: text,
+    })
+  );
+  ElMessage.success({
+    message: $t('IOSRemote.clipboard.SentSuccessfully'),
+  });
+};
+const getPasteboard = () => {
+  websocket.send(
+    JSON.stringify({
+      type: 'getPasteboard',
     })
   );
 };
@@ -1658,6 +1694,8 @@ const getProjectList = () => {
     store.commit('saveProjectList', resp.data);
   });
 };
+let activeTime = 0;
+const idleCount = ref(0);
 onMounted(() => {
   if (store.state.project.id) {
     project.value = store.state.project;
@@ -1667,27 +1705,44 @@ onMounted(() => {
   getDeviceById(route.params.deviceId);
   store.commit('autoChangeCollapse');
   getRemoteTimeout();
+  getIdleTimeout();
+  activeTime = new Date().getTime();
+  window.document.onmousedown = (event) => {
+    idleCount.value = 0;
+    activeTime = new Date().getTime();
+  };
+  window.document.onmousemove = (event) => {
+    idleCount.value = 0;
+    activeTime = new Date().getTime();
+  };
+  checkAlive();
 });
 const remoteTimeout = ref(0);
+const ticker = ref(0);
 const getRemoteTimeout = () => {
   axios.get('/controller/confList/getRemoteTimeout').then((resp) => {
-    remoteTimeout.value = resp.data * 60;
+    remoteTimeout.value = resp.data;
     setInterval(() => {
-      remoteTimeout.value -= 1;
+      ticker.value += 1;
     }, 1000);
   });
 };
-function parseTimeout(time) {
-  let h = parseInt((time / 60 / 60) % 24);
-  h = h < 10 ? `0${h}` : h;
-  let m = parseInt((time / 60) % 60);
-  m = m < 10 ? `0${m}` : m;
-  let s = parseInt(time % 60);
-  s = s < 10 ? `0${s}` : s;
-  return `${h} ${$t('common.hour')} ${m} ${$t('common.min')} ${s} ${$t(
-    'common.sec'
-  )} `;
-}
+const idleTimeout = ref(0);
+const getIdleTimeout = () => {
+  axios.get('/controller/confList/getIdleTimeout').then((resp) => {
+    idleTimeout.value = resp.data;
+  });
+};
+
+const checkAlive = () => {
+  setInterval(() => {
+    idleCount.value++;
+    const nowTime = new Date().getTime();
+    if (nowTime - activeTime > idleTimeout.value * 60 * 1000) {
+      close();
+    }
+  }, 1000);
+};
 </script>
 
 <template>
@@ -1745,16 +1800,12 @@ function parseTimeout(time) {
       @flush="dialogElement = false"
     />
   </el-dialog>
-  <el-page-header
-    :content="
-      $t('routes.remoteControl') +
-      ' - ' +
-      $t('common.at') +
-      parseTimeout(remoteTimeout) +
-      $t('common.release')
-    "
-    style="margin-top: 15px; margin-left: 20px"
-    @back="close"
+  <remote-page-header
+    :ticker="ticker"
+    :idle-count="idleCount"
+    :remote-timeout="remoteTimeout"
+    :idle-timeout="idleTimeout"
+    @close="close"
   />
   <div style="padding: 20px">
     <el-row
@@ -2537,37 +2588,27 @@ function parseTimeout(time) {
               <el-col :span="12" style="margin-top: 15px">
                 <el-card>
                   <template #header>
-                    <strong>{{ $t('androidRemoteTS.code.scanQRCode') }}</strong>
+                    <strong>{{ $t('IOSRemote.clipboard.operate') }}</strong>
                   </template>
-                  <el-alert
-                    :title="$t('androidRemoteTS.code.errTitle')"
-                    type="info"
-                    show-icon
-                    :closable="false"
-                  >
-                  </el-alert>
-                  <div style="text-align: center; margin-top: 20px">
-                    <el-upload
-                      drag
-                      action=""
-                      :with-credentials="true"
-                      :limit="1"
-                      :before-upload="beforeAvatarUpload"
-                      :on-exceed="limitOut"
-                      :http-request="uploadScan"
-                      list-type="picture"
+                  <el-input
+                    v-model="paste"
+                    :rows="10"
+                    show-word-limit
+                    clearable
+                    type="textarea"
+                    :placeholder="$t('IOSRemote.clipboard.inputText')"
+                  ></el-input>
+                  <div style="text-align: center; margin-top: 15px">
+                    <el-button
+                      size="mini"
+                      type="primary"
+                      @click="setPasteboard(paste)"
                     >
-                      <i class="el-icon-upload"></i>
-                      <div class="el-upload__text">
-                        {{ $t('androidRemoteTS.code.messageThree') }}
-                        <em>{{ $t('devices.detail.uploadImg') }}</em>
-                      </div>
-                      <template #tip>
-                        <div class="el-upload__tip">
-                          {{ $t('androidRemoteTS.code.messageFour') }}
-                        </div>
-                      </template>
-                    </el-upload>
+                      {{ $t('IOSRemote.clipboard.send') }}
+                    </el-button>
+                    <el-button size="mini" type="primary" @click="getPasteboard"
+                      >{{ $t('IOSRemote.clipboard.getText') }}
+                    </el-button>
                   </div>
                 </el-card>
               </el-col>
@@ -2648,6 +2689,40 @@ function parseTimeout(time) {
                           </el-button>
                         </a>
                       </el-tab-pane>
+                      <el-tab-pane
+                        :label="$t('androidRemoteTS.code.scanQRCode')"
+                      >
+                        <el-alert
+                          :title="$t('androidRemoteTS.code.errTitle')"
+                          type="info"
+                          show-icon
+                          :closable="false"
+                        >
+                        </el-alert>
+                        <div style="text-align: center; margin-top: 10px">
+                          <el-upload
+                            drag
+                            action=""
+                            :with-credentials="true"
+                            :limit="1"
+                            :before-upload="beforeAvatarUpload"
+                            :on-exceed="limitOut"
+                            :http-request="uploadScan"
+                            list-type="picture"
+                          >
+                            <i class="el-icon-upload"></i>
+                            <div class="el-upload__text">
+                              {{ $t('androidRemoteTS.code.messageThree') }}
+                              <em>{{ $t('devices.detail.uploadImg') }}</em>
+                            </div>
+                            <template #tip>
+                              <div class="el-upload__tip">
+                                {{ $t('androidRemoteTS.code.messageFour') }}
+                              </div>
+                            </template>
+                          </el-upload>
+                        </div>
+                      </el-tab-pane>
                     </el-tabs>
                   </div>
                 </el-card>
@@ -2655,74 +2730,112 @@ function parseTimeout(time) {
             </el-row>
           </el-tab-pane>
           <el-tab-pane :label="$t('androidRemoteTS.code.app')" name="apps">
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-card shadow="hover">
-                  <template #header>
-                    <strong>{{
-                      $t('androidRemoteTS.code.pushInstall')
-                    }}</strong>
-                  </template>
-                  <div style="text-align: center">
-                    <el-upload
-                      v-loading="uploadLoading"
-                      drag
-                      action=""
-                      :with-credentials="true"
-                      :limit="1"
-                      :before-upload="beforeAvatarUpload2"
-                      :on-exceed="limitOut"
-                      :http-request="uploadPackage"
-                    >
-                      <i class="el-icon-upload"></i>
-                      <div class="el-upload__text">
-                        {{ $t('androidRemoteTS.code.apkFile') }}
-                        <em>{{ $t('devices.detail.uploadImg') }}</em>
+            <el-tabs v-model="activeIntallTab" type="border-card" stretch>
+              <el-tab-pane name="pushInstallPane">
+                <template #label>
+                  <strong>{{ $t('androidRemoteTS.code.pushInstall') }}</strong>
+                </template>
+                <div style="text-align: center">
+                  <el-upload
+                    v-loading="uploadLoading"
+                    drag
+                    action=""
+                    :with-credentials="true"
+                    :limit="1"
+                    :before-upload="beforeAvatarUpload2"
+                    :on-exceed="limitOut"
+                    :http-request="uploadPackage"
+                  >
+                    <i class="el-icon-upload"></i>
+                    <div class="el-upload__text">
+                      {{ $t('androidRemoteTS.code.apkFile') }}
+                      <em>{{ $t('devices.detail.uploadImg') }}</em>
+                    </div>
+                    <template #tip>
+                      <div class="el-upload__tip">
+                        {{ $t('androidRemoteTS.code.onlyAPKFile') }}
                       </div>
-                      <template #tip>
-                        <div class="el-upload__tip">
-                          {{ $t('androidRemoteTS.code.onlyAPKFile') }}
-                        </div>
-                      </template>
-                    </el-upload>
-                  </div>
-                </el-card>
-              </el-col>
-              <el-col :span="12">
-                <el-card
-                  shadow="hover"
-                  class="url-install-box"
-                  :body-style="{
-                    position: 'absolute',
-                    top: '50%',
-                    width: '100%',
-                    paddingTop: '56px',
-                    paddingBottom: '0',
-                    boxSizing: 'border-box',
-                    transform: 'translateY(-50%)',
-                  }"
+                    </template>
+                  </el-upload>
+                </div>
+              </el-tab-pane>
+              <el-tab-pane name="urlInstallPane">
+                <template #label>
+                  <strong>{{ $t('androidRemoteTS.code.URLInstall') }}</strong>
+                </template>
+                <el-input
+                  v-model="uploadUrl"
+                  clearable
+                  size="small"
+                  :placeholder="$t('androidRemoteTS.code.hint')"
+                ></el-input>
+                <div style="text-align: center; margin-top: 20px">
+                  <el-button
+                    size="mini"
+                    type="primary"
+                    :disabled="uploadUrl.length === 0"
+                    @click="install(uploadUrl)"
+                    >{{ $t('androidRemoteTS.code.send') }}
+                  </el-button>
+                </div>
+              </el-tab-pane>
+              <el-tab-pane name="linkInstallPane">
+                <template #label>
+                  <strong>{{ $t('androidRemoteTS.code.linkInstall') }}</strong>
+                </template>
+                <span style="color: #909399; margin-right: 10px">{{
+                  $t('androidRemoteTS.code.associatedProject')
+                }}</span>
+                <el-select
+                  v-model="project"
+                  size="mini"
+                  value-key="id"
+                  :placeholder="$t('androidRemoteTS.code.chooseProject')"
                 >
-                  <template #header>
-                    <strong>{{ $t('androidRemoteTS.code.URLInstall') }}</strong>
-                  </template>
-                  <el-input
-                    v-model="uploadUrl"
-                    clearable
-                    size="small"
-                    :placeholder="$t('androidRemoteTS.code.hint')"
-                  ></el-input>
-                  <div style="text-align: center; margin-top: 20px">
-                    <el-button
-                      size="mini"
-                      type="primary"
-                      :disabled="uploadUrl.length === 0"
-                      @click="install(uploadUrl)"
-                      >{{ $t('androidRemoteTS.code.send') }}
-                    </el-button>
-                  </div>
-                </el-card>
-              </el-col>
-            </el-row>
+                  <el-option
+                    v-for="item in store.state.projectList"
+                    :key="item.id"
+                    :value="item"
+                    :label="item['projectName']"
+                  >
+                    <div style="display: flex; align-items: center">
+                      <el-avatar
+                        style="margin-right: 10px"
+                        :size="32"
+                        :src="
+                          item['projectImg'].length > 0
+                            ? item['projectImg']
+                            : defaultLogo
+                        "
+                        shape="square"
+                      ></el-avatar>
+                      {{ item['projectName'] }}
+                    </div>
+                  </el-option>
+                </el-select>
+
+                <div v-if="project !== null">
+                  <package-list
+                    v-if="project !== null"
+                    :project-id="project['id']"
+                    platform-type="Android"
+                    @select-package="selectPackage"
+                  ></package-list>
+                </div>
+                <div v-else>
+                  <el-card style="height: 100%; margin-top: 20px">
+                    <el-result
+                      icon="info"
+                      :title="$t('androidRemoteTS.code.hintText')"
+                      :sub-title="
+                        $t('androidRemoteTS.code.hintAssociatedProject')
+                      "
+                    >
+                    </el-result>
+                  </el-card>
+                </div>
+              </el-tab-pane>
+            </el-tabs>
             <el-card shadow="hover" style="margin-top: 15px">
               <el-table :data="currAppListPageData" border>
                 <el-table-column width="100" header-align="center">
@@ -3645,9 +3758,29 @@ function parseTimeout(time) {
                                 v-if="elementDetail['content-desc']"
                                 label="content-desc"
                                 style="cursor: pointer"
-                                @click="copy(elementDetail['content-desc'])"
                               >
-                                <span>{{ elementDetail['content-desc'] }}</span>
+                                <span
+                                  @click="copy(elementDetail['content-desc'])"
+                                  >{{ elementDetail['content-desc'] }}</span
+                                >
+                                <el-icon
+                                  v-if="project && project['id']"
+                                  color="green"
+                                  size="16"
+                                  style="
+                                    vertical-align: middle;
+                                    margin-left: 10px;
+                                    cursor: pointer;
+                                  "
+                                  @click="
+                                    toAddElement(
+                                      'accessibilityId',
+                                      elementDetail['content-desc']
+                                    )
+                                  "
+                                >
+                                  <Pointer />
+                                </el-icon>
                               </el-form-item>
                               <el-form-item
                                 label="package"

@@ -115,86 +115,121 @@ onMounted(() => {
     :rules="[{ required: true, message: place, trigger: 'change' }]"
     :prop="'elements[' + index + ']'"
   >
-    <el-card>
-      <span style="font-size: 14px; color: #99a9bf; margin-right: 10px">{{
-        $t('element.modelFilter')
-      }}</span>
-      <el-select v-model="moduleId" size="small" @change="findByModule">
-        <el-option
-          v-for="item in moduleList"
-          :key="item.name"
-          :value="item.id"
-          :label="item.name"
-        >
-        </el-option>
-      </el-select>
-
-      <div style="margin-top: 10px">
-        <span style="font-size: 14px; color: #99a9bf; margin-right: 10px">{{
-          $t('element.nameFilter')
-        }}</span>
-        <el-select
-          v-model="step.elements[index]"
-          filterable
-          remote
-          :remote-method="findByName"
-          value-key="id"
-          :placeholder="$t('element.namePlace')"
-          @visible-change="findByProjectIdAndEleType"
-        >
-          <el-option
-            v-for="item in pageData['content']"
-            v-if="pageData['content'] !== null"
-            :key="item.id"
-            :label="item['eleName']"
-            :value="item"
-          >
-            <span>{{ item['eleName'] }}</span>
-            <el-popover
-              v-if="
-                item.eleType === 'androidIterator' ||
-                item.eleType === 'pocoIterator' ||
-                item.eleType === 'iOSIterator'
-              "
-              placement="right"
-              :width="300"
-              trigger="hover"
+    <div>
+      <el-select
+        v-model="step.elements[index]"
+        style="width: 100%"
+        value-key="id"
+        @visible-change="findByProjectIdAndEleType"
+      >
+        <template #prefix>
+          <span style="font-size: 14px; color: #99a9bf; margin: 0 10px">{{
+            $t('element.nameFilter')
+          }}</span>
+        </template>
+        <template #empty>
+          <div style="text-align: center; margin: 5px">
+            <el-input
+              v-model="name"
+              :placeholder="$t('element.namePlace')"
+              @input="findByName"
             >
-              <p>
-                {{ $t('element.whenList') }}
-                <strong style="color: #409eff">{{
-                  $t('element.iterationList')
-                }}</strong>
-                {{ $t('element.thenList') }}
-                <strong style="color: #409eff">{{
-                  $t('element.currentIteration')
-                }}</strong
-                >{{ $t('element.last') }}
-              </p>
-              <template #reference>
-                <el-icon
-                  :size="15"
-                  style="vertical-align: middle; margin-left: 5px"
+              <template #prepend>
+                <el-select
+                  v-model="moduleId"
+                  style="width: 115px"
+                  size="small"
+                  @change="findByModule"
                 >
-                  <QuestionFilled />
-                </el-icon>
+                  <el-option
+                    v-for="item in moduleList"
+                    :key="item.name"
+                    :value="item.id"
+                    :label="item.name"
+                  >
+                  </el-option>
+                </el-select>
               </template>
-            </el-popover>
-          </el-option>
-          <div style="text-align: center; margin-top: 5px">
-            <el-pagination
-              v-model:current-page="currentPage"
-              small
-              layout="prev, pager, next"
-              hide-on-single-page
-              :total="pageData['totalElements']"
-              :page-size="pageSize"
-              @current-change="findByProjectIdAndEleType(true, $event)"
-            >
-            </el-pagination>
+            </el-input>
           </div>
-        </el-select>
-      </div>
-    </el-card>
+          <el-empty />
+        </template>
+        <div style="text-align: center; margin: 5px">
+          <el-input
+            v-model="name"
+            :placeholder="$t('element.namePlace')"
+            @input="findByName"
+          >
+            <template #prepend>
+              <el-select
+                v-model="moduleId"
+                style="width: 115px"
+                size="small"
+                @change="findByModule"
+              >
+                <el-option
+                  v-for="item in moduleList"
+                  :key="item.name"
+                  :value="item.id"
+                  :label="item.name"
+                >
+                </el-option>
+              </el-select>
+            </template>
+          </el-input>
+        </div>
+        <el-option
+          v-for="item in pageData['content']"
+          v-if="pageData['content'] !== null"
+          :key="item.id"
+          :label="item['eleName']"
+          :value="item"
+        >
+          <span>{{ item['eleName'] }}</span>
+          <el-popover
+            v-if="
+              item.eleType === 'androidIterator' ||
+              item.eleType === 'pocoIterator' ||
+              item.eleType === 'iOSIterator'
+            "
+            placement="right"
+            :width="300"
+            trigger="hover"
+          >
+            <p>
+              {{ $t('element.whenList') }}
+              <strong style="color: #409eff">{{
+                $t('element.iterationList')
+              }}</strong>
+              {{ $t('element.thenList') }}
+              <strong style="color: #409eff">{{
+                $t('element.currentIteration')
+              }}</strong
+              >{{ $t('element.last') }}
+            </p>
+            <template #reference>
+              <el-icon
+                :size="15"
+                style="vertical-align: middle; margin-left: 5px"
+              >
+                <QuestionFilled />
+              </el-icon>
+            </template>
+          </el-popover>
+        </el-option>
+        <div style="text-align: center; margin-top: 5px">
+          <el-pagination
+            v-model:current-page="currentPage"
+            small
+            layout="prev, pager, next"
+            hide-on-single-page
+            :total="pageData['totalElements']"
+            :page-size="pageSize"
+            @current-change="findByProjectIdAndEleType(true, $event)"
+          >
+          </el-pagination>
+        </div>
+      </el-select>
+    </div>
   </el-form-item>
 </template>

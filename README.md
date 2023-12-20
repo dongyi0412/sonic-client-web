@@ -71,10 +71,8 @@ docker build -t sonicorg/sonic-client-web .
 
 ## Deployment mode
 
-### Docker Mode (NO RECOMMENDED)
+### Docker Mode
 
-> I recommend that docker mode be used only for testing
->
 > [Click Here!](https://hub.docker.com/repository/docker/sonicorg/sonic-client-web)
 
 ### dist Mode

@@ -142,12 +142,14 @@ const findAgentById = (id) => {
     class="device-card"
   >
     <template #header>
-      <RenderDeviceName :device="device"></RenderDeviceName>
-      <RenderStatus
-        :status="device.status"
-        :user="device.user"
-        :ud-id="device.udId"
-      ></RenderStatus>
+      <div style="display: flex; justify-content: space-between">
+        <RenderDeviceName :device="device"></RenderDeviceName>
+        <RenderStatus
+          :status="device.status"
+          :user="device.user"
+          :ud-id="device.udId"
+        ></RenderStatus>
+      </div>
     </template>
     <el-row>
       <el-col :span="10">
@@ -166,7 +168,7 @@ const findAgentById = (id) => {
           label-position="left"
           class="device-form"
           label-width="70px"
-          style="margin: 0 0 15px 10px"
+          style="margin: 0 0 15px 10px; white-space: nowrap"
         >
           <el-form-item v-if="!detail" :label="$t('devices.form.model')">
             <div>{{ device.model }}</div>

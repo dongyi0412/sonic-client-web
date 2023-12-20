@@ -72,6 +72,7 @@ const testSuite = ref({
   projectId: route.params.projectId,
   devices: [],
   testCases: [],
+  alertRobotIds: null,
 });
 const deviceData = ref([]);
 const deviceDataBack = ref([]);
@@ -84,6 +85,21 @@ const getDevice = () => {
       if (resp.code === 2000) {
         deviceData.value = resp.data;
         deviceDataBack.value = resp.data;
+      }
+    });
+};
+const robotData = ref([]);
+const getAlertRobots = () => {
+  axios
+    .get('/controller/alertRobots/listAll', {
+      params: {
+        projectId: route.params.projectId,
+        scene: 'testsuite',
+      },
+    })
+    .then((resp) => {
+      if (resp.code === 2000) {
+        robotData.value = resp.data;
       }
     });
 };
@@ -170,6 +186,7 @@ onMounted(() => {
   if (props.suiteId !== 0) {
     getSuiteInfo(props.suiteId);
   }
+  getAlertRobots();
 });
 </script>
 
@@ -416,6 +433,38 @@ onMounted(() => {
           ></pageable>
         </el-tab-pane>
       </el-tabs>
+    </el-form-item>
+    <el-form-item
+      prop="alertRobotIds"
+      :label="$t('testSuitesTS.ui.alertRobotIds')"
+    >
+      <div style="display: flex; align-items: center">
+        <el-switch
+          v-model="testSuite.alertRobotIds"
+          class="mb-2"
+          :inactive-value="[]"
+          :active-value="null"
+        />
+        <span style="margin-left: 10px">{{
+          $t('testSuitesTS.ui.defaultAlertRobotIds')
+        }}</span>
+      </div>
+      <template v-if="testSuite.alertRobotIds != null">
+        <el-select
+          v-model="testSuite.alertRobotIds"
+          multiple
+          clearable
+          style="width: 100%"
+          :placeholder="$t('robot.ui.botPlaceholder')"
+        >
+          <el-option
+            v-for="item in robotData"
+            :key="item.id"
+            :label="item.name"
+            :value="item.id"
+          ></el-option
+        ></el-select>
+      </template>
     </el-form-item>
   </el-form>
 

@@ -69,9 +69,11 @@ import {
   InfoFilled,
 } from '@element-plus/icons';
 import { useI18n } from 'vue-i18n';
+import PackageList from '@/components/PackageList.vue';
 import RenderDeviceName from '../../components/RenderDeviceName.vue';
 import PocoPane from '../../components/PocoPane.vue';
 import IOSPerf from '../../components/IOSPerf.vue';
+import RemotePageHeader from '../../components/RemotePageHeader.vue';
 
 const pocoPaneRef = ref(null);
 const iosPerfRef = ref(null);
@@ -99,6 +101,7 @@ const directionStatus = {
 };
 let moveX = 0;
 let moveY = 0;
+const depth = ref(50);
 const isFixTouch = false;
 const isPress = false;
 let loop = null;
@@ -373,6 +376,14 @@ const getImg = (name) => {
   }
   return result;
 };
+// 选中安装包列表中的item后响应事件
+const selectPackage = (val) => {
+  ElMessage.success({
+    message: $t('androidRemoteTS.startInstall'),
+  });
+  install(val);
+};
+const activeIntallTab = ref('pushInstallPane');
 watch(filterText, (newValue, oldValue) => {
   tree.value.filter(newValue);
 });
@@ -400,6 +411,18 @@ const findBestNS = (elementDetail) => {
     r += ` AND visible == ${elementDetail.visible}`;
   }
   result.push(r);
+  return result;
+};
+const findBestClassChain = (elementDetail) => {
+  const result = [];
+  if (elementDetail.name) {
+    result.push(`**/${elementDetail.type}[\`name == \"${elementDetail.name}\"\`]`);
+    result.push(`**/${elementDetail.type}[\`name CONTAINS \"${elementDetail.name}\"\`]`);
+  }
+  if (elementDetail.label) {
+    result.push(`**/${elementDetail.type}[\`label == \"${elementDetail.label}\"\`]`);
+    result.push(`**/${elementDetail.type}[\`label CONTAINS \"${elementDetail.label}\"\`]`);
+  }
   return result;
 };
 const findBestXpath = (elementDetail) => {
@@ -1171,6 +1194,7 @@ const getElement = () => {
       type: 'debug',
       detail: 'tree',
       needImg: oldBlob == null,
+      depth: depth.value,
     })
   );
 };
@@ -1225,6 +1249,8 @@ const getProjectList = () => {
     store.commit('saveProjectList', resp.data);
   });
 };
+let activeTime = 0;
+const idleCount = ref(0);
 onMounted(() => {
   if (store.state.project.id) {
     project.value = store.state.project;
@@ -1234,27 +1260,44 @@ onMounted(() => {
   getDeviceById(route.params.deviceId);
   store.commit('autoChangeCollapse');
   getRemoteTimeout();
+  getIdleTimeout();
+  activeTime = new Date().getTime();
+  window.document.onmousedown = (event) => {
+    idleCount.value = 0;
+    activeTime = new Date().getTime();
+  };
+  window.document.onmousemove = (event) => {
+    idleCount.value = 0;
+    activeTime = new Date().getTime();
+  };
+  checkAlive();
 });
 const remoteTimeout = ref(0);
+const ticker = ref(0);
 const getRemoteTimeout = () => {
   axios.get('/controller/confList/getRemoteTimeout').then((resp) => {
-    remoteTimeout.value = resp.data * 60;
+    remoteTimeout.value = resp.data;
     setInterval(() => {
-      remoteTimeout.value -= 1;
+      ticker.value += 1;
     }, 1000);
   });
 };
-function parseTimeout(time) {
-  let h = parseInt((time / 60 / 60) % 24);
-  h = h < 10 ? `0${h}` : h;
-  let m = parseInt((time / 60) % 60);
-  m = m < 10 ? `0${m}` : m;
-  let s = parseInt(time % 60);
-  s = s < 10 ? `0${s}` : s;
-  return `${h} ${$t('common.hour')} ${m} ${$t('common.min')} ${s} ${$t(
-    'common.sec'
-  )} `;
-}
+const idleTimeout = ref(0);
+const getIdleTimeout = () => {
+  axios.get('/controller/confList/getIdleTimeout').then((resp) => {
+    idleTimeout.value = resp.data;
+  });
+};
+
+const checkAlive = () => {
+  setInterval(() => {
+    idleCount.value++;
+    const nowTime = new Date().getTime();
+    if (nowTime - activeTime > idleTimeout.value * 60 * 1000) {
+      close();
+    }
+  }, 1000);
+};
 </script>
 
 <template>
@@ -1312,16 +1355,12 @@ function parseTimeout(time) {
       @flush="dialogElement = false"
     />
   </el-dialog>
-  <el-page-header
-    :content="
-      $t('routes.remoteControl') +
-      ' - ' +
-      $t('common.at') +
-      parseTimeout(remoteTimeout) +
-      $t('common.release')
-    "
-    style="margin-top: 15px; margin-left: 20px"
-    @back="close"
+  <remote-page-header
+    :ticker="ticker"
+    :idle-count="idleCount"
+    :remote-timeout="remoteTimeout"
+    :idle-timeout="idleTimeout"
+    @close="close"
   />
   <div style="padding: 20px">
     <el-row
@@ -1871,72 +1910,114 @@ function parseTimeout(time) {
             </el-row>
           </el-tab-pane>
           <el-tab-pane :label="$t('androidRemoteTS.code.app')" name="apps">
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-card shadow="hover">
-                  <template #header>
-                    <strong>{{ $t('IOSRemote.installIPA') }}</strong>
-                  </template>
-                  <div style="text-align: center">
-                    <el-upload
-                      v-loading="uploadLoading"
-                      drag
-                      action=""
-                      :with-credentials="true"
-                      :limit="1"
-                      :before-upload="beforeAvatarUpload2"
-                      :on-exceed="limitOut"
-                      :http-request="uploadPackage"
-                    >
-                      <i class="el-icon-upload"></i>
-                      <div class="el-upload__text">
-                        {{ $t('IOSRemote.moveIPA')
-                        }}<em>{{ $t('devices.detail.uploadImg') }}</em>
+            <el-tabs v-model="activeIntallTab" type="border-card" stretch>
+              <el-tab-pane name="pushInstallPane">
+                <template #label>
+                  <strong>{{ $t('IOSRemote.installIPA') }}</strong>
+                </template>
+                <div style="text-align: center">
+                  <el-upload
+                    v-loading="uploadLoading"
+                    drag
+                    action=""
+                    :with-credentials="true"
+                    :limit="1"
+                    :before-upload="beforeAvatarUpload2"
+                    :on-exceed="limitOut"
+                    :http-request="uploadPackage"
+                  >
+                    <i class="el-icon-upload"></i>
+                    <div class="el-upload__text">
+                      {{ $t('IOSRemote.moveIPA')
+                      }}<em>{{ $t('devices.detail.uploadImg') }}</em>
+                    </div>
+                    <template #tip>
+                      <div class="el-upload__tip">
+                        {{ $t('IOSRemote.onlyIPAFile') }}
                       </div>
-                      <template #tip>
-                        <div class="el-upload__tip">
-                          {{ $t('IOSRemote.onlyIPAFile') }}
-                        </div>
-                      </template>
-                    </el-upload>
-                  </div>
-                </el-card>
-              </el-col>
-              <el-col :span="12">
-                <el-card
-                  shadow="hover"
-                  class="url-install-box"
-                  :body-style="{
-                    position: 'absolute',
-                    top: '50%',
-                    width: '100%',
-                    paddingTop: '56px',
-                    paddingBottom: '0',
-                    boxSizing: 'border-box',
-                    transform: 'translateY(-50%)',
-                  }"
+                    </template>
+                  </el-upload>
+                </div>
+              </el-tab-pane>
+
+              <el-tab-pane name="urlInstallPane">
+                <template #label>
+                  <strong>{{ $t('androidRemoteTS.code.URLInstall') }}</strong>
+                </template>
+                <el-input
+                  v-model="uploadUrl"
+                  clearable
+                  size="small"
+                  :placeholder="$t('IOSRemote.pleaseIPAFilePath')"
+                ></el-input>
+                <div style="text-align: center; margin-top: 20px">
+                  <el-button
+                    size="mini"
+                    type="primary"
+                    :disabled="uploadUrl.length === 0"
+                    @click="install(uploadUrl)"
+                    >{{ $t('androidRemoteTS.code.send') }}
+                  </el-button>
+                </div>
+              </el-tab-pane>
+              <el-tab-pane name="linkInstallPane">
+                <template #label>
+                  <strong>{{ $t('androidRemoteTS.code.linkInstall') }}</strong>
+                </template>
+                <span style="color: #909399; margin-right: 10px">{{
+                  $t('androidRemoteTS.code.associatedProject')
+                }}</span>
+                <el-select
+                  v-model="project"
+                  size="mini"
+                  value-key="id"
+                  :placeholder="$t('androidRemoteTS.code.chooseProject')"
                 >
-                  <template #header>
-                    <strong>URL安装</strong>
-                  </template>
-                  <el-input
-                    v-model="uploadUrl"
-                    clearable
-                    size="small"
-                    :placeholder="$t('IOSRemote.pleaseIPAFilePath')"
-                  ></el-input>
-                  <div style="text-align: center; margin-top: 20px">
-                    <el-button
-                      size="mini"
-                      type="primary"
-                      :disabled="uploadUrl.length === 0"
-                      @click="install(uploadUrl)"
-                      >{{ $t('androidRemoteTS.code.send') }}
-                    </el-button>
-                  </div>
-                </el-card>
-              </el-col>
-            </el-row>
+                  <el-option
+                    v-for="item in store.state.projectList"
+                    :key="item.id"
+                    :value="item"
+                    :label="item['projectName']"
+                  >
+                    <div style="display: flex; align-items: center">
+                      <el-avatar
+                        style="margin-right: 10px"
+                        :size="32"
+                        :src="
+                          item['projectImg'].length > 0
+                            ? item['projectImg']
+                            : defaultLogo
+                        "
+                        shape="square"
+                      ></el-avatar>
+                      {{ item['projectName'] }}
+                    </div>
+                  </el-option>
+                </el-select>
+
+                <div v-if="project !== null">
+                  <package-list
+                    v-if="project !== null"
+                    :project-id="project['id']"
+                    platform-type="iOS"
+                    @select-package="selectPackage"
+                  ></package-list>
+                </div>
+                <div v-else>
+                  <el-card style="height: 100%; margin-top: 20px">
+                    <el-result
+                      icon="info"
+                      :title="$t('androidRemoteTS.code.hintText')"
+                      :sub-title="
+                        $t('androidRemoteTS.code.hintAssociatedProject')
+                      "
+                    >
+                    </el-result>
+                  </el-card>
+                </div>
+              </el-tab-pane>
+            </el-tabs>
+
             <el-card shadow="hover" style="margin-top: 15px">
               <el-table :data="currAppListPageData" border>
                 <el-table-column width="100" header-align="center">
@@ -2488,14 +2569,28 @@ function parseTimeout(time) {
                       margin-bottom: 15px;
                       display: flex;
                       align-items: center;
-                      justify-content: space-between;
                     "
                   >
+                    <span
+                      style="
+                        margin-right: 10px;
+                        color: #909399;
+                        font-size: 14px;
+                      "
+                      >{{ $t('IOSRemote.depth') }}:
+                    </span>
+                    <el-input-number
+                      v-model="depth"
+                      size="mini"
+                      :min="1"
+                      :max="60"
+                    />
                     <el-button
                       type="primary"
                       size="mini"
                       :loading="elementLoading"
                       :disabled="isDriverFinish === false"
+                      style="margin-left: 10px"
                       @click="getElement"
                     >
                       <el-icon :size="12" style="vertical-align: middle">
@@ -2710,6 +2805,40 @@ function parseTimeout(time) {
                                         "
                                         @click="
                                           toAddElement('nsPredicate', scope.row)
+                                        "
+                                      >
+                                        <Pointer />
+                                      </el-icon>
+                                    </template>
+                                  </el-table-column>
+                                </el-table>
+                              </el-form-item>
+                              <el-form-item :label="$t('IOSRemote.classChain')">
+                                <el-table
+                                  stripe
+                                  :empty-text="$t('IOSRemote.noRecommend')"
+                                  border
+                                  :data="findBestClassChain(elementDetail)"
+                                  :show-header="false"
+                                >
+                                  <el-table-column>
+                                    <template #default="scope">
+                                      <span
+                                        style="cursor: pointer"
+                                        @click="copy(scope.row)"
+                                        >{{ scope.row }}</span
+                                      >
+                                      <el-icon
+                                        v-if="project && project['id']"
+                                        color="green"
+                                        size="16"
+                                        style="
+                                          vertical-align: middle;
+                                          margin-left: 10px;
+                                          cursor: pointer;
+                                        "
+                                        @click="
+                                          toAddElement('classChain', scope.row)
                                         "
                                       >
                                         <Pointer />
